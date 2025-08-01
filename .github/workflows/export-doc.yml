@@ -1,0 +1,44 @@
+name: Export Google Doc to PDF
+on:
+  schedule:
+    - cron: '0 3 * * *'   # every day 05:00 Berlin
+  workflow_dispatch:
+
+permissions:
+  contents: write          # allow pushes
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 1️⃣ authenticate and ask for an ACCESS TOKEN directly
+      - uses: google-github-actions/auth@v2
+        id: auth
+        with:
+          credentials_json: '${{ secrets.GOOGLE_CREDENTIALS }}'
+          token_format: 'access_token'   # <-- gives us steps.auth.outputs.access_token
+          access_token_scopes: 'https://www.googleapis.com/auth/drive.readonly'
+
+      # 2️⃣ download the Doc as PDF (no gcloud, just curl)
+      - name: Download PDF
+        env:
+          DOC_ID: ${{ secrets.DOC_ID }}
+          TOKEN:  ${{ steps.auth.outputs.access_token }}
+        run: |
+          curl -sSL -H "Authorization: Bearer ${TOKEN}" \
+               -o doc.pdf \
+               "https://www.googleapis.com/drive/v3/files/${DOC_ID}/export?mimeType=application/pdf"
+
+      # 3️⃣ commit & push if anything changed
+      - name: Commit & push
+        run: |
+          git config user.name  "ci-bot"
+          git config user.email "ci-bot@users.noreply.github.com"
+          git add doc.pdf
+          git diff --cached --quiet && echo "No update" && exit 0
+          git commit -m "Auto-update PDF $(date -u +'%Y-%m-%d')"
+      - uses: ad-m/github-push-action@v0.8.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
